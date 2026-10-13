@@ -5,20 +5,22 @@ import { Howl, Howler } from "howler";
 import Image from "next/image";
 import {
   ArrowDownToLine, AudioLines, Check, ChevronDown, ChevronRight, CircleHelp,
-  Compass, Disc3, FolderPlus, Headphones, ImagePlus, LocateFixed, Map as MapIcon,
+  Compass, Disc3, Layers, FolderPlus, Headphones, ImagePlus, Map as MapIcon,
   MapPin, Menu, Music2, Pause, Pencil, Play, Plus, Search, Settings2, Share2,
-  SlidersHorizontal, Trash2, Volume2, VolumeX, X, Moon, Sun
+  SlidersHorizontal, Star, Trash2, Volume2, VolumeX, X, Moon, Sun
 } from "lucide-react";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { AlbumView } from "@/components/album-view";
 import { MemoryMap } from "@/components/memory-map";
 import { createClient } from "@/lib/supabase/client";
 import { demoCollections, demoPins } from "@/lib/demo";
 import { downloadPins } from "@/lib/export";
 import { useUIStore } from "@/store/ui";
-import { collectionInputSchema, pinInputSchema } from "@/lib/validation";
-import type { Collection, MemoryPin, PinInput } from "@/types/database";
+import { formatTime, getEmbed, mediaKind } from "@/lib/media";
+import { collectionInputSchema, maxAlbumItems, pinInputSchema } from "@/lib/validation";
+import type { AlbumItem, Collection, MemoryPin, PinInput } from "@/types/database";
 
 type Point = { lat: number; lng: number };
 type SearchResult = Point & { label: string; placeName: string };
@@ -36,7 +38,8 @@ const initialDraft = (point: Point, placeName: string | null = null): Draft => (
   image_path: null,
   image_external_url: null,
   audio_path: null,
-  audio_url: null
+  audio_url: null,
+  album: []
 });
 const palette = ["#d8795b", "#e5a94d", "#829071", "#536f82", "#9b7896", "#ce6d7c", "#4d8792", "#434b45"];
 const storeKey = "map-of-memories-demo-v1";
@@ -44,25 +47,12 @@ const emptyPins: MemoryPin[] = [];
 const emptyCollections: Collection[] = [];
 const cloudEnabled = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
-function mediaKind(url: string | null | undefined) {
-  if (!url) return "none";
-  if (/youtu\.be|youtube\.com/i.test(url)) {
-    const id = url.match(/(?:youtu\.be\/|v=|embed\/)([A-Za-z0-9_-]{6,})/)?.[1];
-    return id ? `youtube:${id}` : "none";
-  }
-  if (/spotify\.com/i.test(url)) {
-    const match = url.match(/open\.spotify\.com\/(track|album|playlist|episode|show)\/([A-Za-z0-9]+)/);
-    return match ? `spotify:${match[1]}/${match[2]}` : "none";
-  }
-  return /^https?:\/\//i.test(url) ? "audio" : "none";
-}
-
-function compressPhoto(file: File): Promise<Blob> {
+function compressPhoto(file: File, maxSize = 1600, quality = 0.84): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const image = new window.Image();
     const objectUrl = URL.createObjectURL(file);
     image.onload = () => {
-      const ratio = Math.min(1, 1600 / Math.max(image.width, image.height));
+      const ratio = Math.min(1, maxSize / Math.max(image.width, image.height));
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(image.width * ratio);
       canvas.height = Math.round(image.height * ratio);
@@ -74,7 +64,7 @@ function compressPhoto(file: File): Promise<Blob> {
       }
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(objectUrl);
-      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not compress this photo.")), "image/jpeg", 0.84);
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("Could not compress this photo.")), "image/jpeg", quality);
     };
     image.onerror = () => {
       URL.revokeObjectURL(objectUrl);
@@ -92,13 +82,6 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error ?? "Something went wrong. Please try again.");
   return data as T;
-}
-
-function getEmbed(url: string, autoplay: boolean) {
-  const kind = mediaKind(url);
-  if (kind.startsWith("youtube:")) return `https://www.youtube-nocookie.com/embed/${kind.slice(8)}?autoplay=${autoplay ? 1 : 0}&rel=0`;
-  if (kind.startsWith("spotify:")) return `https://open.spotify.com/embed/${kind.slice(8)}?utm_source=generator`;
-  return null;
 }
 
 export function MapWorkspace() {
@@ -132,7 +115,8 @@ export function MapWorkspace() {
   const [suggestions, setSuggestions] = useState<SearchResult[]>([]);
   const [searchError, setSearchError] = useState("");
   const [searchPoint, setSearchPoint] = useState<(Point & { nonce: number }) | null>(null);
-  const [locateSignal, setLocateSignal] = useState(0);
+  const [satellite, setSatellite] = useState(false);
+  const [lightbox, setLightbox] = useState(false);
   const [activeCollection, setActiveCollection] = useState<string>("all");
   const [hiddenCollections, setHiddenCollections] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
@@ -140,7 +124,9 @@ export function MapWorkspace() {
   const [editor, setEditor] = useState<{ draft: Draft; id: string | null } | null>(null);
   const [toast, setToast] = useState("");
   const [toastError, setToastError] = useState(false);
-  const [uploading, setUploading] = useState<"image" | "audio" | null>(null);
+  const [uploading, setUploading] = useState<"image" | "audio" | "album-image" | "album-audio" | null>(null);
+  const [songLink, setSongLink] = useState("");
+  const [songTitle, setSongTitle] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playhead, setPlayhead] = useState(0);
@@ -153,10 +139,27 @@ export function MapWorkspace() {
   const selectedSearchResult = useRef(false);
   const fileImageRef = useRef<HTMLInputElement>(null);
   const fileAudioRef = useRef<HTMLInputElement>(null);
+  const albumImageRef = useRef<HTMLInputElement>(null);
+  const albumAudioRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const playerRef = useRef<Howl | null>(null);
   const playheadTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const selectedPin = pins.find((pin) => pin.id === selectedPinId) ?? null;
+
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setLightbox(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
+
+  useEffect(() => setLightbox(false), [selectedPinId]);
+
+  const editorOpen = editor !== null;
+  useEffect(() => {
+    setSongLink("");
+    setSongTitle("");
+  }, [editorOpen]);
   const effectiveDark = mapTheme === "dark" || (mapTheme === "system" && systemDark);
 
   useEffect(() => {
@@ -471,6 +474,116 @@ export function MapWorkspace() {
     }
   }
 
+  function appendAlbum(items: AlbumItem[]) {
+    setEditor((current) => current
+      ? { ...current, draft: { ...current.draft, album: [...(current.draft.album ?? []), ...items].slice(0, maxAlbumItems) } }
+      : current);
+  }
+
+  async function addAlbumPhotos(files: File[]) {
+    const room = maxAlbumItems - (editor?.draft.album?.length ?? 0);
+    if (room <= 0) throw new Error(`An album holds up to ${maxAlbumItems} items.`);
+    setUploading("album-image");
+    try {
+      const added: AlbumItem[] = [];
+      for (const file of files.slice(0, room)) {
+        const id = crypto.randomUUID();
+        const title = file.name.replace(/\.[^.]+$/, "").slice(0, 80);
+        if (cloudEnabled) {
+          const body = new FormData();
+          body.append("kind", "image");
+          body.append("file", await compressPhoto(file), file.name);
+          const response = await fetch("/api/upload", { method: "POST", body });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error ?? "Upload failed.");
+          added.push({ id, kind: "image", title, path: data.path, url: data.signedUrl });
+        } else {
+          const compressed = await compressPhoto(file, 1200, 0.74);
+          const url = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = () => reject(new Error("Could not read this photo."));
+            reader.readAsDataURL(compressed);
+          });
+          added.push({ id, kind: "image", title, path: null, url });
+        }
+      }
+      appendAlbum(added);
+      if (files.length > room) showToast(`Only ${room} more item${room === 1 ? "" : "s"} fit in the album.`, true);
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  async function addAlbumSongFile(file: File) {
+    if (!cloudEnabled) throw new Error("Song uploads need a connected Supabase account. You can paste a link instead.");
+    if ((editor?.draft.album?.length ?? 0) >= maxAlbumItems) throw new Error(`An album holds up to ${maxAlbumItems} items.`);
+    setUploading("album-audio");
+    try {
+      const body = new FormData();
+      body.append("kind", "audio");
+      body.append("file", file, file.name);
+      const response = await fetch("/api/upload", { method: "POST", body });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Upload failed.");
+      appendAlbum([{ id: crypto.randomUUID(), kind: "audio", title: file.name.replace(/\.[^.]+$/, "").slice(0, 80), path: data.path, url: data.signedUrl }]);
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  function addAlbumSongLink() {
+    const link = songLink.trim();
+    if (!link) return;
+    if (mediaKind(link) === "none") {
+      showToast("Paste a direct audio, YouTube or Spotify link.", true);
+      return;
+    }
+    if ((editor?.draft.album?.length ?? 0) >= maxAlbumItems) {
+      showToast(`An album holds up to ${maxAlbumItems} items.`, true);
+      return;
+    }
+    appendAlbum([{ id: crypto.randomUUID(), kind: "audio", title: songTitle.trim().slice(0, 80), path: null, url: link }]);
+    setSongLink("");
+    setSongTitle("");
+  }
+
+  function handleAlbumFiles(kind: "image" | "audio", event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!files.length) return;
+    const task = kind === "image" ? addAlbumPhotos(files) : addAlbumSongFile(files[0]);
+    void task.catch((error: unknown) => {
+      setUploading(null);
+      showToast(error instanceof Error ? error.message : "Upload failed.", true);
+    });
+  }
+
+  function updateAlbumItem(id: string, change: Partial<AlbumItem> | null) {
+    setEditor((current) => current
+      ? {
+        ...current,
+        draft: {
+          ...current.draft,
+          album: (current.draft.album ?? []).flatMap((item) => item.id !== id ? [item] : change ? [{ ...item, ...change }] : [])
+        }
+      }
+      : current);
+  }
+
+  function setAsTitlePhoto(item: AlbumItem) {
+    setEditor((current) => current
+      ? {
+        ...current,
+        draft: item.path
+          ? { ...current.draft, image_path: item.path, image_external_url: null }
+          : { ...current.draft, image_path: null, image_external_url: item.url }
+      }
+      : current);
+    setImagePreview(item.url);
+    showToast("Title photo updated");
+  }
+
   function handleFile(kind: "image" | "audio", event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -496,7 +609,8 @@ export function MapWorkspace() {
         image_path: pin.image_path,
         image_external_url: pin.image_external_url ?? (pin.image_path ? null : pin.image_url),
         audio_path: pin.audio_path,
-        audio_url: pin.audio_path ? null : pin.audio_url
+        audio_url: pin.audio_path ? null : pin.audio_url,
+        album: pin.album ?? []
       }
     });
   }
@@ -628,7 +742,10 @@ export function MapWorkspace() {
             ...draft,
             image_path: ownedPath(draft.image_path),
             audio_path: ownedPath(draft.audio_path),
-            image_external_url: draft.image_external_url ?? null
+            image_external_url: draft.image_external_url ?? null,
+            album: draft.album.flatMap((item) => item.path
+              ? ownedPath(item.path) ? [{ ...item, url: null }] : []
+              : item.url && !item.url.startsWith("data:") ? [item] : [])
           };
           const saved = await requestJson<{ pin: MemoryPin }>("/api/pins", { method: "POST", body: JSON.stringify(normalized) });
           setDataset((current) => ({ ...current, pins: [saved.pin, ...current.pins] }));
@@ -683,19 +800,19 @@ export function MapWorkspace() {
           onFocus={focusPin}
           onMapPlace={(point) => addAtPoint(point)}
           onMovePin={movePin}
-          locateSignal={locateSignal}
+          satellite={satellite}
           searchPoint={searchPoint}
         />
       </div>
 
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between p-3 sm:p-5">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-2xl bg-white/95 px-3 py-2.5 shadow-card backdrop-blur sm:px-4">
+      <header className={`pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3 transition-[padding] duration-300 sm:p-5 ${sidebarOpen ? "z-[35] md:pl-[390px]" : "z-20"}`}>
+        <div className="pointer-events-auto flex items-center gap-2 rounded-2xl bg-white/95 px-3 py-2.5 shadow-card backdrop-blur sm:px-4 md:hidden">
           <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#eef1e9] text-[#53664e]"><MapPin size={20} fill="currentColor" /></span>
           <span className="hidden sm:block"><span className="block font-serif text-base font-semibold leading-5">memory map</span><span className="text-[10px] uppercase tracking-[.18em] text-[#90958c]">keep a place close</span></span>
           <button className="ml-1 grid h-9 w-9 place-items-center rounded-xl text-[#647160] hover:bg-[#f1f3ee] md:hidden" aria-label="Open memory list" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
         </div>
 
-        <div className="pointer-events-auto absolute left-3 top-[76px] w-[calc(100%-24px)] sm:max-md:top-[76px] sm:max-md:w-[calc(100%-24px)] md:left-[calc(50%+84px)] md:top-5 md:w-[min(460px,calc(100vw-530px))] md:-translate-x-1/2">
+        <div className={`pointer-events-auto absolute left-3 top-[76px] w-[calc(100%-24px)] sm:max-md:top-[76px] sm:max-md:w-[calc(100%-24px)] md:left-[calc(50%+84px)] md:top-5 md:w-[min(460px,calc(100vw-530px))] md:-translate-x-1/2 transition-[margin] duration-300 ${sidebarOpen ? "md:ml-[185px]" : ""}`}>
           <div className="relative">
             <div className="flex items-center gap-2 rounded-2xl bg-white px-4 py-3 shadow-card ring-1 ring-black/[.03]">
               <Search size={18} className="shrink-0 text-[#7c8478]" />
@@ -724,7 +841,7 @@ export function MapWorkspace() {
           >
             {effectiveDark ? <Sun size={19} /> : <Moon size={19} />}
           </button>
-          <button onClick={() => setLocateSignal((value) => value + 1)} aria-label="Locate me" title="Locate me" className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-[#53664e] shadow-card transition hover:-translate-y-0.5"><LocateFixed size={19} /></button>
+          <button onClick={() => setSatellite((value) => !value)} aria-pressed={satellite} aria-label="Toggle satellite view" title={satellite ? "Switch to street map" : "Switch to satellite"} className={`grid h-11 w-11 place-items-center rounded-2xl shadow-card transition hover:-translate-y-0.5 ${satellite ? "bg-[#53664e] text-white" : "bg-white text-[#53664e]"}`}><Layers size={19} /></button>
           <button onClick={() => setSidebarOpen(true)} aria-label="Browse memories" title="Browse memories" className="hidden h-11 items-center gap-2 rounded-2xl bg-white px-4 text-sm font-medium text-[#53664e] shadow-card transition hover:-translate-y-0.5 sm:flex"><MapIcon size={17} /><span>{pins.length}</span></button>
         </div>
       </header>
@@ -805,6 +922,15 @@ export function MapWorkspace() {
       </AnimatePresence>
 
       <AnimatePresence>
+        {lightbox && selectedPin?.image_url && (
+          <motion.div key="lightbox" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: .18 }} onClick={() => setLightbox(false)} role="dialog" aria-modal="true" aria-label={`Photo for ${selectedPin.title}`} className="fixed inset-0 z-50 grid cursor-zoom-out place-items-center bg-black/80 p-4 md:p-10">
+            <button type="button" aria-label="Close photo" onClick={() => setLightbox(false)} className="absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-full bg-white/90 text-[#56624e]"><X size={18} /></button>
+            <motion.img initial={{ scale: .92 }} animate={{ scale: 1 }} exit={{ scale: .95 }} src={selectedPin.image_url} alt={`Photo for ${selectedPin.title}`} className="max-h-full max-w-full rounded-2xl object-contain shadow-2xl" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {selectedPin && (
           <motion.aside key={selectedPin.id} initial={{ opacity: 0, y: 14, x: 12 }} animate={{ opacity: 1, y: 0, x: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: .24 }} className="fixed inset-x-0 bottom-0 z-20 max-h-[78dvh] overflow-y-auto rounded-t-[28px] bg-[#fbfbf8] shadow-[0_-16px_52px_rgba(28,36,30,.18)] md:inset-y-5 md:left-auto md:right-5 md:max-h-none md:w-[370px] md:rounded-[26px] md:shadow-card">
             <div className="relative">
@@ -813,8 +939,10 @@ export function MapWorkspace() {
                 <button aria-label="Delete memory" onClick={() => { if (confirm("Delete this memory?")) deleteMutation.mutate(selectedPin.id); }} className="grid h-9 w-9 place-items-center rounded-full bg-white/90 text-[#9f5748] shadow-sm hover:bg-white"><Trash2 size={16} /></button>
                 <button aria-label="Close memory details" onClick={() => setSelectedPinId(null)} className="grid h-9 w-9 place-items-center rounded-full bg-white/90 text-[#56624e] shadow-sm hover:bg-white"><X size={17} /></button>
               </div>
-              <div className="h-48 bg-[#e7e9e1] md:h-56">
-                {selectedPin.image_url ? <Image src={selectedPin.image_url} alt={`Photo for ${selectedPin.title}`} fill sizes="(max-width: 768px) 100vw, 370px" unoptimized className="object-cover" /> : <div className="grid h-full place-items-center bg-gradient-to-br from-[#e5e9df] to-[#f6ede2] text-[#8a967e]"><MapPin size={36} /></div>}
+              <div className="bg-[#e7e9e1]">
+                {selectedPin.image_url
+                  ? <button type="button" aria-label="Enlarge photo" onClick={() => setLightbox(true)} className="block w-full cursor-zoom-in"><img src={selectedPin.image_url} alt={`Photo for ${selectedPin.title}`} className="block h-auto max-h-[70dvh] w-full object-cover" /></button>
+                  : <div className="grid h-48 place-items-center bg-gradient-to-br from-[#e5e9df] to-[#f6ede2] text-[#8a967e] md:h-56"><MapPin size={36} /></div>}
               </div>
             </div>
             <div className="px-5 pb-7 pt-5 md:px-6">
@@ -847,6 +975,7 @@ export function MapWorkspace() {
                 </div>
               )}
               {!selectedPin.audio_url && <div className="mt-5 flex items-center gap-3 rounded-2xl border border-dashed border-[#dfe3d9] px-4 py-3 text-xs text-[#92998d]"><AudioLines size={18} />No song attached yet<button onClick={() => beginEdit(selectedPin)} className="ml-auto text-[#687d61] underline">Add one</button></div>}
+              {selectedPin.album && selectedPin.album.length > 0 && <AlbumView key={selectedPin.id} album={selectedPin.album} pinTitle={selectedPin.title} onTrackPlay={() => { playerRef.current?.pause(); setIsPlaying(false); }} />}
             </div>
           </motion.aside>
         )}
@@ -882,7 +1011,7 @@ export function MapWorkspace() {
 
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <div className="min-w-0">
-                  <span className="text-xs font-semibold text-[#697263]">A photo</span>
+                  <span className="text-xs font-semibold text-[#697263]">Title photo</span>
                   <button type="button" disabled={uploading === "image"} onClick={() => fileImageRef.current?.click()} className="relative mt-1.5 flex h-24 w-full items-center justify-center gap-2 overflow-hidden rounded-xl border border-dashed border-[#dce1d7] bg-white text-xs text-[#75806f] hover:bg-[#f5f6f1] disabled:opacity-60">
                     {imagePreview ? <Image src={imagePreview} alt="Selected photo preview" fill sizes="220px" unoptimized className="object-cover" /> : <><ImagePlus size={18} />{uploading === "image" ? "Uploading…" : "Upload photo"}</>}
                   </button>
@@ -897,6 +1026,43 @@ export function MapWorkspace() {
                   <input ref={fileAudioRef} type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/ogg,audio/mp4,audio/aac,audio/flac" className="sr-only" onChange={(event) => handleFile("audio", event)} />
                   <input aria-label="Audio URL" type="url" placeholder="Audio, YouTube or Spotify URL" value={editor.draft.audio_url ?? ""} onChange={(event) => setEditor({ ...editor, draft: { ...editor.draft, audio_url: event.target.value || null, audio_path: null } })} className="mt-2 w-full rounded-lg border border-[#e2e5dd] bg-white px-2.5 py-2 text-[11px] outline-none" />
                 </div>
+              </div>
+              <div className="mt-5 rounded-2xl border border-[#e6e9e1] bg-white/60 p-3.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[#697263]">Album <span className="font-normal text-[#a4a89f]">· photos and songs</span></span>
+                  <span className="text-[10px] text-[#a4a89f]">{(editor.draft.album ?? []).length}/{maxAlbumItems}</span>
+                </div>
+                {(editor.draft.album ?? []).some((item) => item.kind === "image") && (
+                  <div className="mt-3 grid grid-cols-4 gap-2">
+                    {(editor.draft.album ?? []).filter((item) => item.kind === "image").map((item) => (
+                      <div key={item.id} className="group relative aspect-square overflow-hidden rounded-lg bg-[#e7e9e1]">
+                        {item.url && <img src={item.url} alt={item.title || "Album photo"} className="h-full w-full object-cover" />}
+                        <button type="button" aria-label="Remove photo" onClick={() => updateAlbumItem(item.id, null)} className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-[#9f5748] shadow-sm"><X size={13} /></button>
+                        <button type="button" aria-label="Use as title photo" title="Use as title photo" onClick={() => setAsTitlePhoto(item)} className="absolute bottom-1 left-1 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-[#b58a2a] shadow-sm"><Star size={13} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button type="button" disabled={uploading === "album-image"} onClick={() => albumImageRef.current?.click()} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[#dce1d7] bg-white py-2.5 text-xs text-[#75806f] hover:bg-[#f5f6f1] disabled:opacity-60"><ImagePlus size={16} />{uploading === "album-image" ? "Uploading…" : "Add photos"}</button>
+                <input ref={albumImageRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif" className="sr-only" onChange={(event) => handleAlbumFiles("image", event)} />
+                {(editor.draft.album ?? []).some((item) => item.kind === "audio") && (
+                  <ul className="mt-3 space-y-1.5">
+                    {(editor.draft.album ?? []).filter((item) => item.kind === "audio").map((item) => (
+                      <li key={item.id} className="flex items-center gap-2 rounded-lg bg-[#eef0e9] px-2.5 py-1.5">
+                        <Music2 size={14} className="shrink-0 text-[#687d61]" />
+                        <input aria-label="Song title" maxLength={80} value={item.title} placeholder={item.path ? "Uploaded song" : "Song title"} onChange={(event) => updateAlbumItem(item.id, { title: event.target.value })} className="min-w-0 flex-1 bg-transparent text-xs outline-none" />
+                        <button type="button" aria-label="Remove song" onClick={() => updateAlbumItem(item.id, null)} className="text-[#9f5748]"><X size={14} /></button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <input aria-label="Song title for new link" maxLength={80} value={songTitle} onChange={(event) => setSongTitle(event.target.value)} placeholder="Title" className="w-[28%] min-w-0 rounded-lg border border-[#e2e5dd] bg-white px-2.5 py-2 text-[11px] outline-none" />
+                  <input aria-label="Song link" type="url" value={songLink} onChange={(event) => setSongLink(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addAlbumSongLink(); } }} placeholder="Audio, YouTube or Spotify link" className="min-w-0 flex-1 rounded-lg border border-[#e2e5dd] bg-white px-2.5 py-2 text-[11px] outline-none" />
+                  <button type="button" onClick={addAlbumSongLink} aria-label="Add song link" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#53664e] text-white hover:bg-[#42533e]"><Plus size={15} /></button>
+                </div>
+                <button type="button" disabled={uploading === "album-audio"} onClick={() => albumAudioRef.current?.click()} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[#dce1d7] bg-white py-2.5 text-xs text-[#75806f] hover:bg-[#f5f6f1] disabled:opacity-60"><Music2 size={16} />{uploading === "album-audio" ? "Uploading…" : "Upload a song file"}</button>
+                <input ref={albumAudioRef} type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/ogg,audio/mp4,audio/aac,audio/flac" className="sr-only" onChange={(event) => handleAlbumFiles("audio", event)} />
               </div>
               {!cloudEnabled && <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-4 text-[#999f94]"><CircleHelp size={14} className="mt-0.5 shrink-0" />Demo uploads are saved in this browser; cloud audio uploads are available after connecting Supabase.</p>}
               {editor.draft.audio_path && <button type="button" onClick={() => setEditor({ ...editor, draft: { ...editor.draft, audio_path: null, audio_url: null } })} className="mt-2 text-xs text-[#9d6457] underline">Remove uploaded audio</button>}
@@ -916,11 +1082,4 @@ export function MapWorkspace() {
       {publicLink && <div className="sr-only" aria-live="polite">Public collection link: {publicLink}</div>}
     </main>
   );
-}
-
-function formatTime(value: number) {
-  if (!Number.isFinite(value)) return "0:00";
-  const minutes = Math.floor(value / 60);
-  const seconds = Math.floor(value % 60).toString().padStart(2, "0");
-  return `${minutes}:${seconds}`;
 }

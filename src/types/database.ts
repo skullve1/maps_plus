@@ -7,6 +7,14 @@ export type Collection = {
   created_at: string;
 };
 
+export type AlbumItem = {
+  id: string;
+  kind: "image" | "audio";
+  title: string;
+  path: string | null;
+  url: string | null;
+};
+
 export type MemoryPin = {
   id: string;
   collection_id: string | null;
@@ -21,6 +29,7 @@ export type MemoryPin = {
   image_url: string | null;
   audio_path: string | null;
   audio_url: string | null;
+  album?: AlbumItem[];
   created_at: string;
   updated_at: string;
 };
@@ -38,4 +47,5 @@ export type PinInput = Pick<
   | "image_external_url"
   | "audio_path"
   | "audio_url"
+  | "album"
 >;

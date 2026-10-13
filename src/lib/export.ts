@@ -8,7 +8,8 @@ export function downloadPins(pins: MemoryPin[]) {
     pins: pins.map((pin) => ({
       ...pin,
       image_url: undefined,
-      audio_url: pin.audio_path ? undefined : pin.audio_url
+      audio_url: pin.audio_path ? undefined : pin.audio_url,
+      album: (pin.album ?? []).map((item) => ({ ...item, url: item.path ? null : item.url }))
     }))
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {

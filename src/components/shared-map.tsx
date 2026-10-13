@@ -5,6 +5,7 @@ import { ArrowLeft, MapPin } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+import { AlbumView } from "@/components/album-view";
 import { MemoryMap } from "@/components/memory-map";
 import type { Collection, MemoryPin } from "@/types/database";
 
@@ -31,7 +32,6 @@ export function SharedMap({ token }: { token: string }) {
           onFocus={setSelected}
           onMapPlace={() => {}}
           onMovePin={() => {}}
-          locateSignal={0}
           searchPoint={null}
         />
       )}
@@ -46,7 +46,7 @@ export function SharedMap({ token }: { token: string }) {
           {selected.image_url
             ? <div className="relative h-44"><Image src={selected.image_url} alt={`Photo for ${selected.title}`} fill sizes="350px" unoptimized className="object-cover" /></div>
             : <div className="grid h-32 place-items-center bg-[#edf0e8] text-[#809071]"><MapPin /></div>}
-          <div className="p-5"><button className="float-right text-[#7d8578]" onClick={() => setSelected(null)} aria-label="Close memory">×</button><h2 className="font-serif text-2xl">{selected.title}</h2>{selected.place_name && <p className="mt-1 text-xs text-[#92978f]">{selected.place_name}</p>}<p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[#656d62]">{selected.description}</p>{selected.audio_url && <audio controls src={selected.audio_url} className="mt-4 w-full" />}</div>
+          <div className="p-5"><button className="float-right text-[#7d8578]" onClick={() => setSelected(null)} aria-label="Close memory">×</button><h2 className="font-serif text-2xl">{selected.title}</h2>{selected.place_name && <p className="mt-1 text-xs text-[#92978f]">{selected.place_name}</p>}<p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[#656d62]">{selected.description}</p>{selected.audio_url && <audio controls src={selected.audio_url} className="mt-4 w-full" />}{selected.album && selected.album.length > 0 && <AlbumView key={selected.id} album={selected.album} pinTitle={selected.title} />}</div>
         </aside>
       )}
       {query.error && <div role="alert" className="absolute left-1/2 top-1/2 z-30 -translate-x-1/2 rounded-2xl bg-white p-6 text-center text-sm text-[#8c4439] shadow-card">{query.error.message}</div>}

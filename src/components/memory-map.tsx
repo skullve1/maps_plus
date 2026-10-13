@@ -4,6 +4,7 @@ import MapLibre, { Marker, NavigationControl, ScaleControl, type MapRef, type Ma
 import { setWorkerUrl } from "maplibre-gl";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { StyleSpecification } from "maplibre-gl";
 import type { MemoryPin } from "@/types/database";
 import { MapPin } from "lucide-react";
 
@@ -17,15 +18,28 @@ type Props = {
   onFocus: (pin: MemoryPin) => void;
   onMapPlace: (point: Point) => void;
   onMovePin: (pin: MemoryPin, point: Point) => void;
-  locateSignal: number;
   searchPoint: SearchPoint | null;
+  satellite?: boolean;
 };
 
 const lightStyle = process.env.NEXT_PUBLIC_MAP_STYLE_LIGHT ?? "https://tiles.openfreemap.org/styles/positron";
 const darkStyle = process.env.NEXT_PUBLIC_MAP_STYLE_DARK ?? "https://tiles.openfreemap.org/styles/dark";
+const satelliteStyle: StyleSpecification = {
+  version: 8,
+  sources: {
+    satellite: {
+      type: "raster",
+      tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: "Imagery © Esri, Maxar, Earthstar Geographics"
+    }
+  },
+  layers: [{ id: "satellite", type: "raster", source: "satellite" }]
+};
 setWorkerUrl("/maplibre-gl-worker.mjs");
 
-export function MemoryMap({ pins, themePreference, selectedPinId, onFocus, onMapPlace, onMovePin, locateSignal, searchPoint }: Props) {
+export function MemoryMap({ pins, themePreference, selectedPinId, onFocus, onMapPlace, onMovePin, searchPoint, satellite = false }: Props) {
   const mapRef = useRef<MapRef>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didLongPress = useRef(false);
@@ -57,20 +71,11 @@ export function MemoryMap({ pins, themePreference, selectedPinId, onFocus, onMap
     mapRef.current?.flyTo({
       center: [pin.lng, pin.lat],
       zoom: Math.max(mapRef.current.getZoom(), 12),
+      padding: { top: 0, bottom: 0, left: 0, right: window.innerWidth >= 768 ? 390 : 0 },
       duration: 1400,
       essential: true
     });
   }, [selectedPinId, pins]);
-
-  useEffect(() => {
-    if (!locateSignal) return;
-    navigator.geolocation?.getCurrentPosition(
-      ({ coords }) => {
-        mapRef.current?.flyTo({ center: [coords.longitude, coords.latitude], zoom: 13, duration: 1200 });
-      },
-      (error) => window.dispatchEvent(new CustomEvent("memory-toast", { detail: error.message }))
-    );
-  }, [locateSignal]);
 
   useEffect(() => {
     if (!searchPoint) return;
@@ -137,13 +142,12 @@ export function MemoryMap({ pins, themePreference, selectedPinId, onFocus, onMap
         const pin = focusedPinRef.current;
         if (pin) mapRef.current?.flyTo({ center: [pin.lng, pin.lat], zoom: 12 });
       }}
-      mapStyle={isDark ? darkStyle : lightStyle}
+      mapStyle={satellite ? satelliteStyle : isDark ? darkStyle : lightStyle}
       maxPitch={80}
       pitchWithRotate
       dragRotate
       touchPitch
       doubleClickZoom
-      cooperativeGestures
       cursor="crosshair"
       aria-label="Interactive memory map. Click or press and hold to add a memory."
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}

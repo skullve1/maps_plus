@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireUser, signedPinMedia } from "@/lib/api";
+import { albumProblem, requireUser, signedPinMedia, storableAlbum } from "@/lib/api";
 import { pinInputSchema } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -34,9 +34,11 @@ export async function POST(request: Request) {
   ) {
     return NextResponse.json({ error: "Media must belong to your account." }, { status: 400 });
   }
+  const problem = albumProblem(parsed.data.album, auth.user.id);
+  if (problem) return NextResponse.json({ error: problem }, { status: 400 });
   const { data, error } = await auth.supabase
     .from("pins")
-    .insert({ ...parsed.data, user_id: auth.user.id })
+    .insert({ ...parsed.data, album: storableAlbum(parsed.data.album), user_id: auth.user.id })
     .select("*")
     .single();
   if (error) {

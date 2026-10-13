@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireUser, signedPinMedia } from "@/lib/api";
+import { albumProblem, requireUser, signedPinMedia, storableAlbum } from "@/lib/api";
 import { pinInputSchema } from "@/lib/validation";
 
 type Context = { params: Promise<{ id: string }> };
@@ -18,9 +18,12 @@ export async function PATCH(request: Request, { params }: Context) {
   ) {
     return NextResponse.json({ error: "Media must belong to your account." }, { status: 400 });
   }
+  const problem = albumProblem(parsed.data.album, auth.user.id);
+  if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+  const update = parsed.data.album ? { ...parsed.data, album: storableAlbum(parsed.data.album) } : parsed.data;
   const { data, error } = await auth.supabase
     .from("pins")
-    .update(parsed.data)
+    .update(update)
     .eq("id", id)
     .select("*")
     .maybeSingle();
