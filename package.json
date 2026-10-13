@@ -1,0 +1,46 @@
+{
+  "name": "map-of-memories",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "postinstall": "node scripts/copy-map-worker.mjs",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.6.1",
+    "@supabase/supabase-js": "^2.49.1",
+    "@tanstack/react-query": "^5.66.9",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.4.7",
+    "howler": "^2.2.4",
+    "lucide-react": "^0.468.0",
+    "maplibre-gl": "^6.14.0",
+    "next": "^16.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-map-gl": "^8.1.3",
+    "tailwind-merge": "^3.3.1",
+    "typescript-eslint": "^8.56.0",
+    "zod": "^3.24.2",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/howler": "^2.2.12",
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@tailwindcss/postcss": "^4.3.3",
+    "eslint": "^9.39.1",
+    "postcss": "^8.5.30",
+    "prettier": "^3.5.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.7.3"
+  }
+}
