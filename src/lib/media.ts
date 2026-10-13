@@ -5,7 +5,7 @@ export function mediaKind(url: string | null | undefined) {
     return id ? `youtube:${id}` : "none";
   }
   if (/spotify\.com/i.test(url)) {
-    const match = url.match(/open\.spotify\.com\/(track|album|playlist|episode|show)\/([A-Za-z0-9]+)/);
+    const match = url.match(/open\.spotify\.com\/(?:intl-[^/]+\/)?(track|album|playlist|episode|show)\/([A-Za-z0-9]+)/);
     return match ? `spotify:${match[1]}/${match[2]}` : "none";
   }
   return /^https?:\/\//i.test(url) ? "audio" : "none";
