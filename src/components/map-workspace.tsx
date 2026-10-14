@@ -5,7 +5,7 @@ import { Howl, Howler } from "howler";
 import Image from "next/image";
 import {
   ArrowDownToLine, AudioLines, Check, ChevronDown, ChevronRight, CircleHelp,
-  Compass, Disc3, Layers, FolderPlus, Headphones, ImagePlus, Map as MapIcon,
+  Compass, Disc3, Globe, Layers, FolderPlus, Headphones, ImagePlus, Map as MapIcon,
   MapPin, Menu, Music2, Pause, Pencil, Play, Plus, Search, Settings2, Share2,
   SlidersHorizontal, Star, Trash2, Volume2, VolumeX, X, Moon, Sun
 } from "lucide-react";
@@ -24,7 +24,7 @@ import type { AlbumItem, Collection, MemoryPin, PinInput } from "@/types/databas
 
 type Point = { lat: number; lng: number };
 type SearchResult = Point & { label: string; placeName: string };
-type Dataset = { pins: MemoryPin[]; collections: Collection[] };
+type Dataset = { pins: MemoryPin[]; publicPins?: MemoryPin[]; collections: Collection[] };
 type Draft = PinInput;
 
 const initialDraft = (point: Point, placeName: string | null = null): Draft => ({
@@ -39,7 +39,8 @@ const initialDraft = (point: Point, placeName: string | null = null): Draft => (
   image_external_url: null,
   audio_path: null,
   audio_url: null,
-  album: []
+  album: [],
+  is_public: false
 });
 const palette = ["#d8795b", "#e5a94d", "#829071", "#536f82", "#9b7896", "#ce6d7c", "#4d8792", "#434b45"];
 const storeKey = "map-of-memories-demo-v1";
@@ -100,6 +101,9 @@ export function MapWorkspace() {
   });
   const dataset = cloudEnabled ? query.data : demoQuery.data;
   const pins = dataset?.pins ?? emptyPins;
+  const publicPins = dataset?.publicPins ?? emptyPins;
+  const showPublicPins = useUIStore((state) => state.showPublicPins);
+  const setShowPublicPins = useUIStore((state) => state.setShowPublicPins);
   const collections = dataset?.collections ?? emptyCollections;
   const selectedPinId = useUIStore((state) => state.selectedPinId);
   const setSelectedPinId = useUIStore((state) => state.setSelectedPinId);
@@ -126,7 +130,6 @@ export function MapWorkspace() {
   const [toastError, setToastError] = useState(false);
   const [uploading, setUploading] = useState<"image" | "audio" | "album-image" | "album-audio" | null>(null);
   const [songLink, setSongLink] = useState("");
-  const [songTitle, setSongTitle] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playhead, setPlayhead] = useState(0);
@@ -144,7 +147,10 @@ export function MapWorkspace() {
   const searchRef = useRef<HTMLInputElement>(null);
   const playerRef = useRef<Howl | null>(null);
   const playheadTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const selectedPin = pins.find((pin) => pin.id === selectedPinId) ?? null;
+  const selectedPin = pins.find((pin) => pin.id === selectedPinId)
+    ?? (showPublicPins ? publicPins.find((pin) => pin.id === selectedPinId) : undefined)
+    ?? null;
+  const isOwnPin = selectedPin?.is_own !== false;
 
   useEffect(() => {
     if (!lightbox) return;
@@ -155,10 +161,13 @@ export function MapWorkspace() {
 
   useEffect(() => setLightbox(false), [selectedPinId]);
 
+  useEffect(() => {
+    if (!showPublicPins && selectedPinId && !pins.some((pin) => pin.id === selectedPinId)) setSelectedPinId(null);
+  }, [showPublicPins, selectedPinId, pins, setSelectedPinId]);
+
   const editorOpen = editor !== null;
   useEffect(() => {
     setSongLink("");
-    setSongTitle("");
   }, [editorOpen]);
   const effectiveDark = mapTheme === "dark" || (mapTheme === "system" && systemDark);
 
@@ -249,6 +258,11 @@ export function MapWorkspace() {
     const matchesSearch = `${pin.title} ${pin.place_name ?? ""}`.toLowerCase().includes(filter.toLowerCase());
     return collectionVisible && notHidden && matchesSearch;
   }), [pins, activeCollection, hiddenCollections, filter]);
+
+  const mapPins = useMemo(
+    () => showPublicPins && publicPins.length ? [...visiblePins, ...publicPins] : visiblePins,
+    [visiblePins, publicPins, showPublicPins]
+  );
 
   const setDataset = useCallback((next: Dataset | ((current: Dataset) => Dataset)) => {
     queryClient.setQueryData<Dataset>(["memories"], (previous) => {
@@ -543,9 +557,8 @@ export function MapWorkspace() {
       showToast(`An album holds up to ${maxAlbumItems} items.`, true);
       return;
     }
-    appendAlbum([{ id: crypto.randomUUID(), kind: "audio", title: songTitle.trim().slice(0, 80), path: null, url: link }]);
+    appendAlbum([{ id: crypto.randomUUID(), kind: "audio", title: "", path: null, url: link }]);
     setSongLink("");
-    setSongTitle("");
   }
 
   function handleAlbumFiles(kind: "image" | "audio", event: ChangeEvent<HTMLInputElement>) {
@@ -610,7 +623,8 @@ export function MapWorkspace() {
         image_external_url: pin.image_external_url ?? (pin.image_path ? null : pin.image_url),
         audio_path: pin.audio_path,
         audio_url: pin.audio_path ? null : pin.audio_url,
-        album: pin.album ?? []
+        album: pin.album ?? [],
+        is_public: pin.is_public ?? false
       }
     });
   }
@@ -743,6 +757,7 @@ export function MapWorkspace() {
             image_path: ownedPath(draft.image_path),
             audio_path: ownedPath(draft.audio_path),
             image_external_url: draft.image_external_url ?? null,
+            is_public: false,
             album: draft.album.flatMap((item) => item.path
               ? ownedPath(item.path) ? [{ ...item, url: null }] : []
               : item.url && !item.url.startsWith("data:") ? [item] : [])
@@ -794,7 +809,7 @@ export function MapWorkspace() {
     <main className="relative h-[100dvh] min-h-[520px] overflow-hidden bg-[#e9ece5] text-ink">
       <div className="absolute inset-0">
         <MemoryMap
-          pins={visiblePins}
+          pins={mapPins}
             themePreference={mapTheme}
           selectedPinId={selectedPinId}
           onFocus={focusPin}
@@ -841,6 +856,7 @@ export function MapWorkspace() {
           >
             {effectiveDark ? <Sun size={19} /> : <Moon size={19} />}
           </button>
+          <button onClick={() => setShowPublicPins(!showPublicPins)} aria-pressed={showPublicPins} aria-label="Show public memories from others" title={showPublicPins ? "Hide public memories from others" : "Show public memories from others"} className={`relative grid h-11 w-11 place-items-center rounded-2xl shadow-card transition hover:-translate-y-0.5 ${showPublicPins ? "bg-[#53664e] text-white" : "bg-white text-[#53664e]"}`}><Globe size={19} />{showPublicPins && publicPins.length > 0 && <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-[#d8795b] px-1 text-center text-[10px] font-bold leading-[18px] text-white">{publicPins.length}</span>}</button>
           <button onClick={() => setSatellite((value) => !value)} aria-pressed={satellite} aria-label="Toggle satellite view" title={satellite ? "Switch to street map" : "Switch to satellite"} className={`grid h-11 w-11 place-items-center rounded-2xl shadow-card transition hover:-translate-y-0.5 ${satellite ? "bg-[#53664e] text-white" : "bg-white text-[#53664e]"}`}><Layers size={19} /></button>
           <button onClick={() => setSidebarOpen(true)} aria-label="Browse memories" title="Browse memories" className="hidden h-11 items-center gap-2 rounded-2xl bg-white px-4 text-sm font-medium text-[#53664e] shadow-card transition hover:-translate-y-0.5 sm:flex"><MapIcon size={17} /><span>{pins.length}</span></button>
         </div>
@@ -935,8 +951,8 @@ export function MapWorkspace() {
           <motion.aside key={selectedPin.id} initial={{ opacity: 0, y: 14, x: 12 }} animate={{ opacity: 1, y: 0, x: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: .24 }} className="fixed inset-x-0 bottom-0 z-20 max-h-[78dvh] overflow-y-auto rounded-t-[28px] bg-[#fbfbf8] shadow-[0_-16px_52px_rgba(28,36,30,.18)] md:inset-y-5 md:left-auto md:right-5 md:max-h-none md:w-[370px] md:rounded-[26px] md:shadow-card">
             <div className="relative">
               <div className="absolute right-3 top-3 z-10 flex gap-1.5">
-                <button aria-label="Edit memory" onClick={() => beginEdit(selectedPin)} className="grid h-9 w-9 place-items-center rounded-full bg-white/90 text-[#56624e] shadow-sm hover:bg-white"><Pencil size={16} /></button>
-                <button aria-label="Delete memory" onClick={() => { if (confirm("Delete this memory?")) deleteMutation.mutate(selectedPin.id); }} className="grid h-9 w-9 place-items-center rounded-full bg-white/90 text-[#9f5748] shadow-sm hover:bg-white"><Trash2 size={16} /></button>
+                {isOwnPin && <><button aria-label="Edit memory" onClick={() => beginEdit(selectedPin)} className="grid h-9 w-9 place-items-center rounded-full bg-white/90 text-[#56624e] shadow-sm hover:bg-white"><Pencil size={16} /></button>
+                <button aria-label="Delete memory" onClick={() => { if (confirm("Delete this memory?")) deleteMutation.mutate(selectedPin.id); }} className="grid h-9 w-9 place-items-center rounded-full bg-white/90 text-[#9f5748] shadow-sm hover:bg-white"><Trash2 size={16} /></button></>}
                 <button aria-label="Close memory details" onClick={() => setSelectedPinId(null)} className="grid h-9 w-9 place-items-center rounded-full bg-white/90 text-[#56624e] shadow-sm hover:bg-white"><X size={17} /></button>
               </div>
               <div className="bg-[#e7e9e1]">
@@ -946,7 +962,7 @@ export function MapWorkspace() {
               </div>
             </div>
             <div className="px-5 pb-7 pt-5 md:px-6">
-              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.19em] text-[#8a9382]"><span className="h-2 w-2 rounded-full" style={{ background: selectedPin.color }} />{collections.find((c) => c.id === selectedPin.collection_id)?.name ?? "A saved moment"}</div>
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.19em] text-[#8a9382]"><span className="h-2 w-2 rounded-full" style={{ background: selectedPin.color }} />{isOwnPin ? collections.find((c) => c.id === selectedPin.collection_id)?.name ?? "A saved moment" : "Public memory"}{isOwnPin && selectedPin.is_public && <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-[#eef0e9] px-2 py-0.5 tracking-normal text-[#687d61]"><Globe size={10} />Public</span>}</div>
               <h2 className="mt-2 font-serif text-[26px] leading-tight text-[#2a3029]">{selectedPin.title}</h2>
               {selectedPin.place_name && <p className="mt-1.5 text-xs text-[#92978f]">{selectedPin.place_name}</p>}
               {selectedPin.description && <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#656d62]">{selectedPin.description}</p>}
@@ -974,7 +990,7 @@ export function MapWorkspace() {
                   )}
                 </div>
               )}
-              {!selectedPin.audio_url && <div className="mt-5 flex items-center gap-3 rounded-2xl border border-dashed border-[#dfe3d9] px-4 py-3 text-xs text-[#92998d]"><AudioLines size={18} />No song attached yet<button onClick={() => beginEdit(selectedPin)} className="ml-auto text-[#687d61] underline">Add one</button></div>}
+              {!selectedPin.audio_url && isOwnPin && <div className="mt-5 flex items-center gap-3 rounded-2xl border border-dashed border-[#dfe3d9] px-4 py-3 text-xs text-[#92998d]"><AudioLines size={18} />No song attached yet<button onClick={() => beginEdit(selectedPin)} className="ml-auto text-[#687d61] underline">Add one</button></div>}
               {selectedPin.album && selectedPin.album.length > 0 && <AlbumView key={selectedPin.id} album={selectedPin.album} pinTitle={selectedPin.title} onTrackPlay={() => { playerRef.current?.pause(); setIsPlaying(false); }} />}
             </div>
           </motion.aside>
@@ -984,32 +1000,43 @@ export function MapWorkspace() {
       <AnimatePresence>
         {editor && (
           <motion.div className="fixed inset-0 z-50 flex items-end justify-center bg-[#20251f]/35 p-0 backdrop-blur-[2px] sm:items-center sm:p-5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <motion.form onSubmit={submitEditor} initial={{ y: 32, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }} className="no-scrollbar max-h-[92dvh] w-full max-w-[510px] overflow-y-auto rounded-t-[28px] bg-[#fbfbf8] p-5 shadow-card sm:rounded-[28px] sm:p-7">
-              <div className="flex items-start justify-between gap-4">
+            <motion.form onSubmit={submitEditor} initial={{ y: 32, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }} className="flex max-h-[94dvh] w-full max-w-[510px] flex-col overflow-hidden rounded-t-[28px] bg-[#fbfbf8] shadow-card sm:rounded-[28px] md:max-w-[880px]">
+              <div className="flex items-start justify-between gap-4 px-5 pt-5 sm:px-7 sm:pt-6">
                 <div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#87917f]">{editor.id ? "Edit a memory" : "Pin a moment"}</p><h2 className="mt-1 font-serif text-2xl">{editor.id ? "Update this place" : "What should you remember?"}</h2><p className="mt-1 text-xs text-[#9a9e96]">{editor.draft.lat.toFixed(4)}, {editor.draft.lng.toFixed(4)}</p></div>
                 <button type="button" aria-label="Close editor" onClick={() => { setEditor(null); setImagePreview(null); }} className="rounded-xl p-2 text-[#76806e] hover:bg-[#eef0e9]"><X size={20} /></button>
               </div>
-              <label className="mt-5 block text-xs font-semibold text-[#697263]">Title *
+              <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-4 sm:px-7 md:grid md:grid-cols-2 md:items-start md:gap-x-8">
+              <div className="mt-4">
+              <label className="mt-0 block text-xs font-semibold text-[#697263]">Title *
                 <input autoFocus required maxLength={80} value={editor.draft.title} onChange={(event) => setEditor({ ...editor, draft: { ...editor.draft, title: event.target.value } })} placeholder="A moment worth keeping" className="mt-1.5 w-full rounded-xl border border-[#e2e5dd] bg-white px-3.5 py-3 text-sm text-ink outline-none focus:border-[#839174]" />
               </label>
               <label className="mt-3 block text-xs font-semibold text-[#697263]">Place name <span className="font-normal text-[#a4a89f]">· optional</span>
                 <input maxLength={160} value={editor.draft.place_name ?? ""} onChange={(event) => setEditor({ ...editor, draft: { ...editor.draft, place_name: event.target.value || null } })} placeholder="Neighborhood, city" className="mt-1.5 w-full rounded-xl border border-[#e2e5dd] bg-white px-3.5 py-3 text-sm text-ink outline-none focus:border-[#839174]" />
               </label>
               <label className="mt-3 block text-xs font-semibold text-[#697263]">A little note
-                <textarea rows={3} maxLength={500} value={editor.draft.description} onChange={(event) => setEditor({ ...editor, draft: { ...editor.draft, description: event.target.value } })} placeholder="What happened here?" className="mt-1.5 w-full resize-none rounded-xl border border-[#e2e5dd] bg-white px-3.5 py-3 text-sm text-ink outline-none focus:border-[#839174]" />
+                <textarea rows={2} maxLength={500} value={editor.draft.description} onChange={(event) => setEditor({ ...editor, draft: { ...editor.draft, description: event.target.value } })} placeholder="What happened here?" className="mt-1.5 w-full resize-none rounded-xl border border-[#e2e5dd] bg-white px-3.5 py-3 text-sm text-ink outline-none focus:border-[#839174]" />
               </label>
               <div className="mt-4 flex items-center gap-2">
                 <span className="mr-1 text-xs font-semibold text-[#697263]">Pin color</span>
                 {palette.map((color) => <button key={color} type="button" aria-label={`Choose ${color}`} onClick={() => setEditor({ ...editor, draft: { ...editor.draft, color } })} className="grid h-7 w-7 place-items-center rounded-full border-2" style={{ borderColor: editor.draft.color === color ? color : "transparent" }}><span className="h-5 w-5 rounded-full" style={{ background: color }}>{editor.draft.color === color && <Check size={13} className="m-auto text-white" />}</span></button>)}
                 <input type="color" aria-label="Custom pin color" value={editor.draft.color} onChange={(event) => setEditor({ ...editor, draft: { ...editor.draft, color: event.target.value } })} className="ml-auto h-8 w-9 cursor-pointer rounded-md border-0 bg-transparent p-0" />
               </div>
+              {cloudEnabled && (
+                <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-xl border border-[#e2e5dd] bg-white px-3.5 py-3">
+                  <Globe size={17} className="shrink-0 text-[#687d61]" />
+                  <span className="min-w-0 flex-1 text-xs font-semibold text-[#697263]">Public pin<span className="mt-0.5 block text-[11px] font-normal text-[#9a9e96]">{editor.draft.is_public ? "Anyone signed in can see this pin, its photos and songs." : "Only you can see this pin."}</span></span>
+                  <input type="checkbox" role="switch" checked={editor.draft.is_public} onChange={(event) => setEditor({ ...editor, draft: { ...editor.draft, is_public: event.target.checked } })} className="h-5 w-9 shrink-0 cursor-pointer accent-[#53664e]" />
+                </label>
+              )}
               <label className="mt-4 block text-xs font-semibold text-[#697263]">Collection
                 <select value={editor.draft.collection_id ?? ""} onChange={(event) => setEditor({ ...editor, draft: { ...editor.draft, collection_id: event.target.value || null } })} className="mt-1.5 w-full rounded-xl border border-[#e2e5dd] bg-white px-3.5 py-3 text-sm outline-none">
                   <option value="">Unsorted</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}
                 </select>
               </label>
 
-              <div className="mt-4 grid grid-cols-2 gap-3">
+              </div>
+              <div className="mt-4 md:mt-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="min-w-0">
                   <span className="text-xs font-semibold text-[#697263]">Title photo</span>
                   <button type="button" disabled={uploading === "image"} onClick={() => fileImageRef.current?.click()} className="relative mt-1.5 flex h-24 w-full items-center justify-center gap-2 overflow-hidden rounded-xl border border-dashed border-[#dce1d7] bg-white text-xs text-[#75806f] hover:bg-[#f5f6f1] disabled:opacity-60">
@@ -1027,26 +1054,24 @@ export function MapWorkspace() {
                   <input aria-label="Audio URL" type="url" placeholder="Audio, YouTube or Spotify URL" value={editor.draft.audio_url ?? ""} onChange={(event) => setEditor({ ...editor, draft: { ...editor.draft, audio_url: event.target.value || null, audio_path: null } })} className="mt-2 w-full rounded-lg border border-[#e2e5dd] bg-white px-2.5 py-2 text-[11px] outline-none" />
                 </div>
               </div>
-              <div className="mt-5 rounded-2xl border border-[#e6e9e1] bg-white/60 p-3.5">
+              <div className="mt-5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[#697263]">Album <span className="font-normal text-[#a4a89f]">· photos and songs</span></span>
+                  <span className="text-xs font-semibold text-[#697263]">Album <span className="font-normal text-[#a4a89f]">· optional</span></span>
                   <span className="text-[10px] text-[#a4a89f]">{(editor.draft.album ?? []).length}/{maxAlbumItems}</span>
                 </div>
-                {(editor.draft.album ?? []).some((item) => item.kind === "image") && (
-                  <div className="mt-3 grid grid-cols-4 gap-2">
-                    {(editor.draft.album ?? []).filter((item) => item.kind === "image").map((item) => (
-                      <div key={item.id} className="group relative aspect-square overflow-hidden rounded-lg bg-[#e7e9e1]">
-                        {item.url && <img src={item.url} alt={item.title || "Album photo"} className="h-full w-full object-cover" />}
-                        <button type="button" aria-label="Remove photo" onClick={() => updateAlbumItem(item.id, null)} className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-[#9f5748] shadow-sm"><X size={13} /></button>
-                        <button type="button" aria-label="Use as title photo" title="Use as title photo" onClick={() => setAsTitlePhoto(item)} className="absolute bottom-1 left-1 grid h-6 w-6 place-items-center rounded-full bg-white/90 text-[#b58a2a] shadow-sm"><Star size={13} /></button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <button type="button" disabled={uploading === "album-image"} onClick={() => albumImageRef.current?.click()} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[#dce1d7] bg-white py-2.5 text-xs text-[#75806f] hover:bg-[#f5f6f1] disabled:opacity-60"><ImagePlus size={16} />{uploading === "album-image" ? "Uploading…" : "Add photos"}</button>
+                <div className="no-scrollbar mt-1.5 flex gap-2 overflow-x-auto pb-1">
+                  <button type="button" disabled={uploading === "album-image"} onClick={() => albumImageRef.current?.click()} aria-label="Add photos" className="grid h-16 w-16 shrink-0 place-items-center rounded-xl border border-dashed border-[#dce1d7] bg-white text-[#75806f] hover:bg-[#f5f6f1] disabled:opacity-60">{uploading === "album-image" ? <span className="text-[10px]">…</span> : <ImagePlus size={18} />}</button>
+                  {(editor.draft.album ?? []).filter((item) => item.kind === "image").map((item) => (
+                    <div key={item.id} className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-[#e7e9e1]">
+                      {item.url && <img src={item.url} alt={item.title || "Album photo"} className="h-full w-full object-cover" />}
+                      <button type="button" aria-label="Remove photo" onClick={() => updateAlbumItem(item.id, null)} className="absolute right-0.5 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-white/90 text-[#9f5748]"><X size={11} /></button>
+                      <button type="button" aria-label="Use as title photo" title="Use as title photo" onClick={() => setAsTitlePhoto(item)} className="absolute bottom-0.5 left-0.5 grid h-5 w-5 place-items-center rounded-full bg-white/90 text-[#b58a2a]"><Star size={11} /></button>
+                    </div>
+                  ))}
+                </div>
                 <input ref={albumImageRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif" className="sr-only" onChange={(event) => handleAlbumFiles("image", event)} />
                 {(editor.draft.album ?? []).some((item) => item.kind === "audio") && (
-                  <ul className="mt-3 space-y-1.5">
+                  <ul className="mt-2 space-y-1">
                     {(editor.draft.album ?? []).filter((item) => item.kind === "audio").map((item) => (
                       <li key={item.id} className="flex items-center gap-2 rounded-lg bg-[#eef0e9] px-2.5 py-1.5">
                         <Music2 size={14} className="shrink-0 text-[#687d61]" />
@@ -1056,17 +1081,20 @@ export function MapWorkspace() {
                     ))}
                   </ul>
                 )}
-                <div className="mt-3 flex gap-2">
-                  <input aria-label="Song title for new link" maxLength={80} value={songTitle} onChange={(event) => setSongTitle(event.target.value)} placeholder="Title" className="w-[28%] min-w-0 rounded-lg border border-[#e2e5dd] bg-white px-2.5 py-2 text-[11px] outline-none" />
-                  <input aria-label="Song link" type="url" value={songLink} onChange={(event) => setSongLink(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addAlbumSongLink(); } }} placeholder="Audio, YouTube or Spotify link" className="min-w-0 flex-1 rounded-lg border border-[#e2e5dd] bg-white px-2.5 py-2 text-[11px] outline-none" />
-                  <button type="button" onClick={addAlbumSongLink} aria-label="Add song link" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#53664e] text-white hover:bg-[#42533e]"><Plus size={15} /></button>
+                <div className="mt-2 flex gap-2">
+                  <button type="button" disabled={uploading === "album-audio"} onClick={() => albumAudioRef.current?.click()} aria-label="Upload a song file" title="Upload a song file" className="grid h-16 w-16 shrink-0 place-items-center rounded-xl border border-dashed border-[#dce1d7] bg-white text-[#75806f] hover:bg-[#f5f6f1] disabled:opacity-60">{uploading === "album-audio" ? <span className="text-[10px]">…</span> : <Music2 size={18} />}</button>
+                  <div className="flex h-16 min-w-0 flex-1 items-center gap-2 rounded-xl border border-[#e2e5dd] bg-white px-3">
+                    <input aria-label="Song link" type="url" value={songLink} onChange={(event) => setSongLink(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addAlbumSongLink(); } }} placeholder="Or paste an audio, YouTube or Spotify link" className="min-w-0 flex-1 bg-transparent text-[11px] outline-none" />
+                    <button type="button" onClick={addAlbumSongLink} aria-label="Add song link" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#53664e] text-white hover:bg-[#42533e]"><Plus size={15} /></button>
+                  </div>
                 </div>
-                <button type="button" disabled={uploading === "album-audio"} onClick={() => albumAudioRef.current?.click()} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[#dce1d7] bg-white py-2.5 text-xs text-[#75806f] hover:bg-[#f5f6f1] disabled:opacity-60"><Music2 size={16} />{uploading === "album-audio" ? "Uploading…" : "Upload a song file"}</button>
                 <input ref={albumAudioRef} type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/ogg,audio/mp4,audio/aac,audio/flac" className="sr-only" onChange={(event) => handleAlbumFiles("audio", event)} />
               </div>
               {!cloudEnabled && <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-4 text-[#999f94]"><CircleHelp size={14} className="mt-0.5 shrink-0" />Demo uploads are saved in this browser; cloud audio uploads are available after connecting Supabase.</p>}
               {editor.draft.audio_path && <button type="button" onClick={() => setEditor({ ...editor, draft: { ...editor.draft, audio_path: null, audio_url: null } })} className="mt-2 text-xs text-[#9d6457] underline">Remove uploaded audio</button>}
-              <div className="mt-6 flex gap-2">
+              </div>
+              </div>
+              <div className="flex gap-2 border-t border-[#eceee8] px-5 py-3.5 sm:px-7">
                 <button type="button" onClick={() => { setEditor(null); setImagePreview(null); }} className="flex-1 rounded-xl border border-[#e2e5dd] bg-white py-3 text-sm font-medium text-[#6e766a]">Cancel</button>
                 <button disabled={saveMutation.isPending || uploading !== null} className="flex flex-[1.4] items-center justify-center gap-2 rounded-xl bg-[#53664e] py-3 text-sm font-semibold text-white transition hover:bg-[#42533e] disabled:opacity-60">{saveMutation.isPending ? "Saving…" : <><Check size={16} />{editor.id ? "Save changes" : "Save memory"}</>}</button>
               </div>

@@ -56,7 +56,8 @@ export const pinInputSchema = z.object({
     .refine((value) => ["http:", "https:"].includes(new URL(value).protocol))
     .nullable()
     .default(null),
-  album: z.array(albumItemSchema).max(maxAlbumItems).default([])
+  album: z.array(albumItemSchema).max(maxAlbumItems).default([]),
+  is_public: z.boolean().default(false)
 });
 
 export const collectionInputSchema = z.object({

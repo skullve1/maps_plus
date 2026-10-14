@@ -27,6 +27,7 @@ export const demoPins: MemoryPin[] = [
     image_url: "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=900&auto=format&fit=crop&q=80",
     audio_path: null,
     audio_url: null,
+    is_public: false,
     created_at: "2025-03-02T09:00:00.000Z",
     updated_at: "2025-03-02T09:00:00.000Z"
   },
@@ -43,6 +44,7 @@ export const demoPins: MemoryPin[] = [
     image_url: "https://images.unsplash.com/photo-1498307833015-e7b400441eb8?w=900&auto=format&fit=crop&q=80",
     audio_path: null,
     audio_url: null,
+    is_public: false,
     created_at: "2025-06-15T19:30:00.000Z",
     updated_at: "2025-06-15T19:30:00.000Z"
   },
@@ -59,6 +61,7 @@ export const demoPins: MemoryPin[] = [
     image_url: "https://images.unsplash.com/photo-1500375592092-40eb2168fd21?w=900&auto=format&fit=crop&q=80",
     audio_path: null,
     audio_url: null,
+    is_public: false,
     created_at: "2025-08-22T18:20:00.000Z",
     updated_at: "2025-08-22T18:20:00.000Z"
   }

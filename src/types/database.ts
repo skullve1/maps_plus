@@ -30,6 +30,8 @@ export type MemoryPin = {
   audio_path: string | null;
   audio_url: string | null;
   album?: AlbumItem[];
+  is_public: boolean;
+  is_own?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -48,4 +50,5 @@ export type PinInput = Pick<
   | "audio_path"
   | "audio_url"
   | "album"
+  | "is_public"
 >;

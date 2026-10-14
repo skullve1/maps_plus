@@ -164,7 +164,7 @@ export function MemoryMap({ pins, themePreference, selectedPinId, onFocus, onMap
             longitude={cluster.lng}
             latitude={cluster.lat}
             anchor="bottom"
-            draggable={!clustered}
+            draggable={!clustered && pin.is_own !== false}
             onDragEnd={(event) => onMovePin(pin, { lat: event.lngLat.lat, lng: event.lngLat.lng })}
             onClick={(event) => {
               event.originalEvent.stopPropagation();
@@ -188,7 +188,7 @@ export function MemoryMap({ pins, themePreference, selectedPinId, onFocus, onMap
               <button
                 aria-label={`Focus memory: ${pin.title}`}
                 title={pin.title}
-                className={`memory-marker ${active ? "is-active" : ""}`}
+                className={`memory-marker ${active ? "is-active" : ""} ${pin.is_own === false ? "is-others" : ""}`}
                 style={{ "--pin-color": pin.color } as React.CSSProperties}
               >
                 <span className="memory-marker__shell">

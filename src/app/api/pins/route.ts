@@ -8,16 +8,22 @@ export async function GET() {
   const auth = await requireUser();
   if ("error" in auth) return auth.error;
 
-  const [pinsResult, collectionsResult] = await Promise.all([
-    auth.supabase.from("pins").select("*").order("created_at", { ascending: false }),
+  const [pinsResult, publicResult, collectionsResult] = await Promise.all([
+    auth.supabase.from("pins").select("*").eq("user_id", auth.user.id).order("created_at", { ascending: false }),
+    auth.supabase.from("pins").select("*").eq("is_public", true).neq("user_id", auth.user.id).order("created_at", { ascending: false }).limit(500),
     auth.supabase.from("collections").select("*").order("created_at", { ascending: true })
   ]);
   if (pinsResult.error || collectionsResult.error) {
     console.error("Failed to load memories", pinsResult.error ?? collectionsResult.error);
     return NextResponse.json({ error: "Could not load your memories." }, { status: 500 });
   }
+  if (publicResult.error) console.error("Failed to load public memories", publicResult.error);
   const pins = await signedPinMedia(auth.supabase, pinsResult.data ?? []);
-  return NextResponse.json({ pins, collections: collectionsResult.data ?? [] });
+  const publicPins = await signedPinMedia(
+    auth.supabase,
+    (publicResult.data ?? []).map((pin) => ({ ...pin, user_id: undefined, collection_id: null, is_own: false }))
+  );
+  return NextResponse.json({ pins, publicPins, collections: collectionsResult.data ?? [] });
 }
 
 export async function POST(request: Request) {
