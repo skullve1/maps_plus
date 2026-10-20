@@ -23,6 +23,7 @@ export async function GET(_request: Request, { params }: Context) {
     .from("pins")
     .select("*")
     .eq("collection_id", collection.id)
+    .eq("is_public", true)
     .order("created_at", { ascending: false });
   if (error) {
     console.error("Could not load shared memories", error);

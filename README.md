@@ -6,7 +6,7 @@ A full-screen, responsive memory map built with Next.js App Router, MapLibre, Su
 
 1. Install Node.js 20+ and dependencies: `npm install`.
 2. Copy `.env.example` to `.env.local` and fill in the Supabase project URL and anon key. The service-role key is optional and must never be exposed to browser code.
-3. Apply `supabase/migrations/20261013000000_initial_schema.sql` in the Supabase SQL editor, or run it with the Supabase CLI (`supabase db push`).
+3. Apply all SQL files in `supabase/migrations/` in timestamp order in the Supabase SQL editor, or run them with the Supabase CLI (`supabase db push`).
 4. In Supabase Auth, enable email/password and Google providers. Set the site URL and redirect URL to `http://localhost:3000/auth/callback`.
 5. Start the app: `npm run dev`.
 
