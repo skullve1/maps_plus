@@ -18,6 +18,7 @@ import { createClient } from "@/lib/supabase/client";
 import { demoCollections, demoPins } from "@/lib/demo";
 import { downloadPins } from "@/lib/export";
 import { useUIStore } from "@/store/ui";
+import type { HudStyle, PinStyle } from "@/store/ui";
 import { formatTime, getEmbed, mediaKind } from "@/lib/media";
 import { collectionInputSchema, maxAlbumItems, pinInputSchema } from "@/lib/validation";
 import type { AlbumItem, Collection, MemoryPin, PinInput } from "@/types/database";
@@ -43,6 +44,11 @@ const initialDraft = (point: Point, placeName: string | null = null): Draft => (
   is_public: false
 });
 const palette = ["#d8795b", "#e5a94d", "#829071", "#536f82", "#9b7896", "#ce6d7c", "#4d8792", "#434b45"];
+const hudPalettes: Record<HudStyle, { label: string; accent: string; hover: string; tint: string }> = {
+  sage: { label: "Sage", accent: "#53664e", hover: "#42533e", tint: "#eef1e9" },
+  ocean: { label: "Ocean", accent: "#3d6678", hover: "#315463", tint: "#e9f1f3" },
+  berry: { label: "Berry", accent: "#81576f", hover: "#69465b", tint: "#f3edf1" }
+};
 const storeKey = "map-of-memories-demo-v1";
 const emptyPins: MemoryPin[] = [];
 const emptyCollections: Collection[] = [];
@@ -109,6 +115,10 @@ export function MapWorkspace() {
   const setSelectedPinId = useUIStore((state) => state.setSelectedPinId);
   const mapTheme = useUIStore((state) => state.mapTheme);
   const setMapTheme = useUIStore((state) => state.setMapTheme);
+  const pinStyle = useUIStore((state) => state.pinStyle);
+  const setPinStyle = useUIStore((state) => state.setPinStyle);
+  const hudStyle = useUIStore((state) => state.hudStyle);
+  const setHudStyle = useUIStore((state) => state.setHudStyle);
   const autoplay = useUIStore((state) => state.autoplay);
   const setAutoplay = useUIStore((state) => state.setAutoplay);
   const volume = useUIStore((state) => state.volume);
@@ -136,6 +146,7 @@ export function MapWorkspace() {
   const [duration, setDuration] = useState(0);
   const [needsSound, setNeedsSound] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [placingPin, setPlacingPin] = useState(false);
   const [publicLink, setPublicLink] = useState("");
   const [demoHydrated, setDemoHydrated] = useState(false);
   const [systemDark, setSystemDark] = useState(false);
@@ -279,6 +290,7 @@ export function MapWorkspace() {
   }, [setSelectedPinId]);
 
   const addAtPoint = useCallback((point: Point, placeName: string | null = null) => {
+    setPlacingPin(false);
     setSelectedPinId(null);
     setImagePreview(null);
     setEditor({ draft: initialDraft(point, placeName), id: null });
@@ -806,14 +818,26 @@ export function MapWorkspace() {
   const signedOut = cloudEnabled && query.error instanceof Error && query.error.message.includes("Authentication");
 
   return (
-    <main className="relative h-[100dvh] min-h-[520px] overflow-hidden bg-[#e9ece5] text-ink">
+    <main
+      className="relative h-[100dvh] min-h-[520px] overflow-hidden bg-[#e9ece5] text-ink"
+      style={{
+        "--hud-accent": hudPalettes[hudStyle].accent,
+        "--hud-accent-hover": hudPalettes[hudStyle].hover,
+        "--hud-tint": hudPalettes[hudStyle].tint
+      } as React.CSSProperties}
+    >
       <div className="absolute inset-0">
         <MemoryMap
           pins={mapPins}
-            themePreference={mapTheme}
+          themePreference={mapTheme}
+          pinStyle={pinStyle}
           selectedPinId={selectedPinId}
+          placingPin={placingPin}
           onFocus={focusPin}
-          onMapPlace={(point) => addAtPoint(point)}
+          onMapPlace={(point) => {
+            setPlacingPin(false);
+            addAtPoint(point);
+          }}
           onMovePin={movePin}
           satellite={satellite}
           searchPoint={searchPoint}
@@ -822,7 +846,7 @@ export function MapWorkspace() {
 
       <header className={`pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3 transition-[padding] duration-300 sm:p-5 ${sidebarOpen ? "z-[35] md:pl-[390px]" : "z-20"}`}>
         <div className="pointer-events-auto flex items-center gap-2 rounded-2xl bg-white/95 px-3 py-2.5 shadow-card backdrop-blur sm:px-4 md:hidden">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#eef1e9] text-[#53664e]"><MapPin size={20} fill="currentColor" /></span>
+          <span className="hud-tint grid h-9 w-9 place-items-center rounded-xl"><MapPin size={20} fill="currentColor" /></span>
           <span className="hidden sm:block"><span className="block font-serif text-base font-semibold leading-5">memory map</span><span className="text-[10px] uppercase tracking-[.18em] text-[#90958c]">keep a place close</span></span>
           <button className="ml-1 grid h-9 w-9 place-items-center rounded-xl text-[#647160] hover:bg-[#f1f3ee] md:hidden" aria-label="Open memory list" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button>
         </div>
@@ -852,22 +876,32 @@ export function MapWorkspace() {
             onClick={() => setMapTheme(effectiveDark ? "light" : "dark")}
             aria-label={`Switch to ${effectiveDark ? "light" : "dark"} map`}
             title={`Switch to ${effectiveDark ? "light" : "dark"} map`}
-            className="grid h-11 w-11 place-items-center rounded-2xl bg-white text-[#53664e] shadow-card transition hover:-translate-y-0.5"
+            className="hud-text grid h-11 w-11 place-items-center rounded-2xl bg-white shadow-card transition hover:-translate-y-0.5"
           >
             {effectiveDark ? <Sun size={19} /> : <Moon size={19} />}
           </button>
-          <button onClick={() => setShowPublicPins(!showPublicPins)} aria-pressed={showPublicPins} aria-label="Show public memories from others" title={showPublicPins ? "Hide public memories from others" : "Show public memories from others"} className={`relative grid h-11 w-11 place-items-center rounded-2xl shadow-card transition hover:-translate-y-0.5 ${showPublicPins ? "bg-[#53664e] text-white" : "bg-white text-[#53664e]"}`}><Globe size={19} />{showPublicPins && publicPins.length > 0 && <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-[#d8795b] px-1 text-center text-[10px] font-bold leading-[18px] text-white">{publicPins.length}</span>}</button>
-          <button onClick={() => setSatellite((value) => !value)} aria-pressed={satellite} aria-label="Toggle satellite view" title={satellite ? "Switch to street map" : "Switch to satellite"} className={`grid h-11 w-11 place-items-center rounded-2xl shadow-card transition hover:-translate-y-0.5 ${satellite ? "bg-[#53664e] text-white" : "bg-white text-[#53664e]"}`}><Layers size={19} /></button>
-          <button onClick={() => setSidebarOpen(true)} aria-label="Browse memories" title="Browse memories" className="hidden h-11 items-center gap-2 rounded-2xl bg-white px-4 text-sm font-medium text-[#53664e] shadow-card transition hover:-translate-y-0.5 sm:flex"><MapIcon size={17} /><span>{pins.length}</span></button>
+          <button onClick={() => setShowPublicPins(!showPublicPins)} aria-pressed={showPublicPins} aria-label="Show public memories from others" title={showPublicPins ? "Hide public memories from others" : "Show public memories from others"} className={`relative grid h-11 w-11 place-items-center rounded-2xl shadow-card transition hover:-translate-y-0.5 ${showPublicPins ? "hud-accent text-white" : "hud-text bg-white"}`}><Globe size={19} />{showPublicPins && publicPins.length > 0 && <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-[#d8795b] px-1 text-center text-[10px] font-bold leading-[18px] text-white">{publicPins.length}</span>}</button>
+          <button onClick={() => setSatellite((value) => !value)} aria-pressed={satellite} aria-label="Toggle satellite view" title={satellite ? "Switch to street map" : "Switch to satellite"} className={`grid h-11 w-11 place-items-center rounded-2xl shadow-card transition hover:-translate-y-0.5 ${satellite ? "hud-accent text-white" : "hud-text bg-white"}`}><Layers size={19} /></button>
+          <button
+            onClick={() => { setSidebarOpen(true); setShowSettings(true); }}
+            aria-label="Open settings"
+            title="Settings"
+            className="hud-text grid h-11 w-11 place-items-center rounded-2xl bg-white shadow-card transition hover:-translate-y-0.5"
+          ><Settings2 size={19} /></button>
+          <button onClick={() => setSidebarOpen(true)} aria-label="Browse memories" title="Browse memories" className="hud-text hidden h-11 items-center gap-2 rounded-2xl bg-white px-4 text-sm font-medium shadow-card transition hover:-translate-y-0.5 sm:flex"><MapIcon size={17} /><span>{pins.length}</span></button>
         </div>
       </header>
 
-      <button onClick={() => addAtPoint({ lat: 48.8584, lng: 2.3656 })} className="absolute bottom-7 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-[#53664e] px-5 py-3 text-sm font-semibold text-white shadow-card transition hover:-translate-y-1 hover:bg-[#42533e] sm:bottom-8">
-        <Plus size={18} /> Add a memory
+      <button
+        type="button"
+        onClick={() => setPlacingPin((value) => !value)}
+        aria-pressed={placingPin}
+        aria-label={placingPin ? "Cancel placing a memory" : "Add a memory"}
+        title={placingPin ? "Cancel pin placement" : "Add a memory"}
+        className={`hud-accent absolute bottom-7 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-card transition hover:-translate-y-1 sm:bottom-8 ${placingPin ? "ring-4 ring-white/70" : ""}`}
+      >
+        {placingPin ? <><MapPin size={18} /> Click map to place a pin</> : <><Plus size={18} /> Add a memory</>}
       </button>
-      <div className="absolute bottom-8 left-4 z-10 hidden items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-xs text-[#6e7669] shadow-sm backdrop-blur sm:flex">
-        <span className="h-2 w-2 rounded-full bg-[#829071]" /> {pins.length} {pins.length === 1 ? "memory" : "memories"} on your map
-      </div>
 
       {cloudEnabled && !signedOut && query.isLoading && (
         <div className="absolute left-1/2 top-24 z-20 -translate-x-1/2 rounded-full bg-white px-4 py-2 text-sm text-[#687d61] shadow-card">Loading your memories…</div>
@@ -895,7 +929,7 @@ export function MapWorkspace() {
                   <select aria-label="Filter by collection" value={activeCollection} onChange={(event) => setActiveCollection(event.target.value)} className="min-w-0 flex-1 rounded-xl border border-[#e5e7e0] bg-white px-3 py-2.5 text-sm text-[#596253]">
                     <option value="all">All collections</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}
                   </select>
-                  <button onClick={createCollection} title="Create collection" aria-label="Create collection" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#edf0e8] text-[#53664e] hover:bg-[#e3e8dc]"><FolderPlus size={18} /></button>
+                  <button onClick={createCollection} title="Create collection" aria-label="Create collection" className="hud-tint grid h-10 w-10 shrink-0 place-items-center rounded-xl"><FolderPlus size={18} /></button>
                 </div>
                 {collections.length > 0 && <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
                   {collections.map((collection) => <button key={collection.id} onClick={() => setHiddenCollections((current) => { const next = new Set(current); if (next.has(collection.id)) next.delete(collection.id); else next.add(collection.id); return next; })} className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] ${hiddenCollections.has(collection.id) ? "border-[#e6e8e2] text-[#a6aaa1]" : "border-[#e0e5db] bg-white text-[#64705e]"}`}><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: collection.color }} />{collection.name}</button>)}
@@ -927,10 +961,39 @@ export function MapWorkspace() {
                   <label className="flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl border border-[#e2e5dd] bg-white py-2.5 text-xs font-medium text-[#64705e] hover:bg-[#f5f6f2]"><Plus size={15} />Import JSON<input type="file" accept="application/json,.json" className="sr-only" onChange={(event) => void importData(event)} /></label>
                 </div>
                 <div className="flex items-center justify-between pt-1 text-xs text-[#92988d]">
-                  <button className="flex items-center gap-1.5 hover:text-[#53664e]" onClick={() => setShowSettings((value) => !value)}><Settings2 size={14} /> Playback settings <ChevronDown size={13} /></button>
+                  <button className="hud-text flex items-center gap-1.5" aria-expanded={showSettings} onClick={() => setShowSettings((value) => !value)}><Settings2 size={14} /> Settings <ChevronDown size={13} /></button>
                   {cloudEnabled ? <button onClick={() => void supabase?.auth.signOut().then(() => location.reload())} className="hover:text-[#53664e]">Sign out</button> : <Link href="/sign-in" className="hover:text-[#53664e]">Connect account</Link>}
                 </div>
-                {showSettings && <label className="flex items-center justify-between rounded-xl bg-[#f0f2ec] px-3 py-2.5 text-xs text-[#606a59]">Auto-play when focusing a memory<input type="checkbox" checked={autoplay} onChange={(event) => setAutoplay(event.target.checked)} className="accent-[#53664e]" /></label>}
+                {showSettings && (
+                  <div className="space-y-3 rounded-xl bg-[#f7f8f5] p-3">
+                    <fieldset>
+                      <legend className="text-xs font-semibold text-[#606a59]">Pin shape</legend>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        {([
+                          ["teardrop", "Classic"],
+                          ["square", "Rounded square"]
+                        ] as const satisfies readonly [PinStyle, string][]).map(([style, label]) => (
+                          <button key={style} type="button" aria-pressed={pinStyle === style} onClick={() => setPinStyle(style)} className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs ${pinStyle === style ? "border-[#aeb9a5] bg-white font-semibold text-[#4d5c46]" : "border-transparent bg-white/60 text-[#747c70]"}`}>
+                            <span className={`h-5 w-5 shrink-0 border-[3px] border-white bg-[#829071] shadow-sm ${style === "square" ? "rounded-md" : "rounded-full rounded-bl-sm rotate-[-45deg]"}`} />
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <fieldset>
+                      <legend className="text-xs font-semibold text-[#606a59]">HUD colors</legend>
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        {(Object.entries(hudPalettes) as [HudStyle, (typeof hudPalettes)[HudStyle]][]).map(([style, colors]) => (
+                          <button key={style} type="button" aria-pressed={hudStyle === style} onClick={() => setHudStyle(style)} className={`flex items-center gap-1.5 rounded-lg border px-2 py-2 text-xs ${hudStyle === style ? "border-[#aeb9a5] bg-white font-semibold text-[#4d5c46]" : "border-transparent bg-white/60 text-[#747c70]"}`}>
+                            <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: colors.accent }} />
+                            {colors.label}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <label className="flex items-center justify-between rounded-lg bg-white/70 px-2.5 py-2 text-xs text-[#606a59]">Auto-play when focusing a memory<input type="checkbox" checked={autoplay} onChange={(event) => setAutoplay(event.target.checked)} className="accent-[#53664e]" /></label>
+                  </div>
+                )}
               </div>
             </motion.aside>
           </>

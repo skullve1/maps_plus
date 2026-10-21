@@ -28,7 +28,10 @@ export function SharedMap({ token }: { token: string }) {
         <MemoryMap
           pins={query.data.pins}
           themePreference="system"
+          pinStyle="teardrop"
           selectedPinId={selected?.id ?? null}
+          placingPin={false}
+          canMovePins={false}
           onFocus={setSelected}
           onMapPlace={() => {}}
           onMovePin={() => {}}

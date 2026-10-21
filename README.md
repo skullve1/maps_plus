@@ -26,7 +26,7 @@ OpenFreeMap's public styles and Photon geocoding are used by default; both are k
 
 ## Features
 
-- MapLibre vector map with system-aware light/dark styles and a persistent manual map-theme toggle, tilt/zoom/pan/touch, marker clustering, long-press and click-to-create, draggable pins, and browser geolocation.
+- MapLibre vector map with system-aware light/dark styles, persistent pin-shape and HUD-color preferences, tilt/zoom/pan/touch, marker clustering, explicit add-button placement mode, and draggable creator-owned pins after focus.
 - Debounced Photon suggestions served through a server route.
 - Accessible responsive sidebar and memory detail sheet, collections, filtering, image previews, photo compression, and JSON backup/restore.
 - Howler audio with focus-driven crossfade, seek, volume, mute, explicit browser sound-unlock prompt, direct audio URLs, and YouTube/Spotify embeds. Direct audio files/URLs crossfade; provider embeds use their own iframe player controls.

@@ -25,6 +25,7 @@ export async function PATCH(request: Request, { params }: Context) {
     .from("pins")
     .update(update)
     .eq("id", id)
+    .eq("user_id", auth.user.id)
     .select("*")
     .maybeSingle();
   if (error) {

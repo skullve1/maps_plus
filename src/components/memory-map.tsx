@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { StyleSpecification } from "maplibre-gl";
 import type { MemoryPin } from "@/types/database";
 import { MapPin } from "lucide-react";
+import type { PinStyle } from "@/store/ui";
 
 type Point = { lat: number; lng: number };
 type SearchPoint = Point & { nonce: number };
@@ -14,7 +15,10 @@ type Cluster = { key: string; lat: number; lng: number; pins: MemoryPin[] };
 type Props = {
   pins: MemoryPin[];
   themePreference: "system" | "light" | "dark";
+  pinStyle: PinStyle;
   selectedPinId: string | null;
+  placingPin: boolean;
+  canMovePins?: boolean;
   onFocus: (pin: MemoryPin) => void;
   onMapPlace: (point: Point) => void;
   onMovePin: (pin: MemoryPin, point: Point) => void;
@@ -39,7 +43,7 @@ const satelliteStyle: StyleSpecification = {
 };
 setWorkerUrl("/maplibre-gl-worker.mjs");
 
-export function MemoryMap({ pins, themePreference, selectedPinId, onFocus, onMapPlace, onMovePin, searchPoint, satellite = false }: Props) {
+export function MemoryMap({ pins, themePreference, pinStyle, selectedPinId, placingPin, canMovePins = true, onFocus, onMapPlace, onMovePin, searchPoint, satellite = false }: Props) {
   const mapRef = useRef<MapRef>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didLongPress = useRef(false);
@@ -109,21 +113,23 @@ export function MemoryMap({ pins, themePreference, selectedPinId, onFocus, onMap
   }, []);
 
   const startLongPress = useCallback((event: MapLayerTouchEvent) => {
+    if (!placingPin) return;
     clearLongPress();
     const point = { lat: event.lngLat.lat, lng: event.lngLat.lng };
     longPressTimer.current = setTimeout(() => {
       didLongPress.current = true;
       onMapPlace(point);
     }, 650);
-  }, [clearLongPress, onMapPlace]);
+  }, [clearLongPress, onMapPlace, placingPin]);
 
   const placeAtClick = useCallback((event: MapLayerMouseEvent) => {
     if (didLongPress.current) {
       didLongPress.current = false;
       return;
     }
+    if (!placingPin) return;
     onMapPlace({ lat: event.lngLat.lat, lng: event.lngLat.lng });
-  }, [onMapPlace]);
+  }, [onMapPlace, placingPin]);
 
   return (
     <MapLibre
@@ -148,8 +154,10 @@ export function MemoryMap({ pins, themePreference, selectedPinId, onFocus, onMap
       dragRotate
       touchPitch
       doubleClickZoom
-      cursor="crosshair"
-      aria-label="Interactive memory map. Click or press and hold to add a memory."
+      cursor={placingPin ? "crosshair" : undefined}
+      aria-label={placingPin
+        ? "Interactive memory map. Click or press and hold to place a memory."
+        : "Interactive memory map. Select Add a memory before clicking or pressing and holding to place a memory."}
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
     >
       <NavigationControl position="bottom-right" visualizePitch />
@@ -164,8 +172,11 @@ export function MemoryMap({ pins, themePreference, selectedPinId, onFocus, onMap
             longitude={cluster.lng}
             latitude={cluster.lat}
             anchor="bottom"
-            draggable={!clustered && pin.is_own !== false}
-            onDragEnd={(event) => onMovePin(pin, { lat: event.lngLat.lat, lng: event.lngLat.lng })}
+            draggable={canMovePins && !clustered && pin.id === selectedPinId && pin.is_own !== false}
+            onDragEnd={(event) => {
+              if (!canMovePins || pin.id !== selectedPinId || pin.is_own === false) return;
+              onMovePin(pin, { lat: event.lngLat.lat, lng: event.lngLat.lng });
+            }}
             onClick={(event) => {
               event.originalEvent.stopPropagation();
               if (clustered) {
@@ -182,13 +193,13 @@ export function MemoryMap({ pins, themePreference, selectedPinId, onFocus, onMap
             {clustered ? (
               <button
                 aria-label={`${cluster.pins.length} memories here. Zoom in`}
-                className="grid h-11 w-11 place-items-center rounded-full border-[3px] border-white bg-[#53664e] text-sm font-bold text-white shadow-lg transition hover:scale-110"
+                className="hud-accent grid h-11 w-11 place-items-center rounded-full border-[3px] border-white text-sm font-bold text-white shadow-lg transition hover:scale-110"
               >{cluster.pins.length}</button>
             ) : (
               <button
                 aria-label={`Focus memory: ${pin.title}`}
                 title={pin.title}
-                className={`memory-marker ${active ? "is-active" : ""} ${pin.is_own === false ? "is-others" : ""}`}
+                className={`memory-marker ${pinStyle === "square" ? "is-square" : ""} ${active ? "is-active" : ""} ${pin.is_own === false ? "is-others" : ""}`}
                 style={{ "--pin-color": pin.color } as React.CSSProperties}
               >
                 <span className="memory-marker__shell">
